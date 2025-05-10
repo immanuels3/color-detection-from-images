@@ -61,16 +61,20 @@ def main():
     if uploaded_file is not None:
         try:
             # Read and store image
-            image = Image.open(uploaded_file).convert("RGB")  # Ensure RGB format
+            image = Image.open(uploaded_file)
+            # Remove any ICC color profile and convert to RGB
+            if 'icc_profile' in image.info:
+                image = Image.open(uploaded_file)  # Reload without profile
+            image = image.convert("RGB")
             st.session_state.image = image
             
             # Save the uploaded image temporarily to inspect it
             temp_image_path = "temp_uploaded_image.png"
-            image.save(temp_image_path)
+            image.save(temp_image_path, "PNG")  # Save as PNG to avoid compression
             
             # Reload the saved image to verify pixel values
             reloaded_image = Image.open(temp_image_path).convert("RGB")
-            img_array = np.array(reloaded_image)
+            img_array = np.array(reloaded_image, dtype=np.uint8)  # Ensure uint8 dtype
             st.session_state.img_array = img_array
             
             # Debug: Log image shape, dtype, and sample pixels

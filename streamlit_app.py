@@ -17,7 +17,8 @@ def find_closest_color(rgb, color_df):
             differences.append((diff, row['Color Name']))
         except (ValueError, KeyError):
             continue
-    return min(differences)[1] if differences else "Unknown Color"
+    # Fix: Use a key function to compare only the distance (first element of tuple)
+    return min(differences, key=lambda x: x[0])[1] if differences else "Unknown Color"
 
 # Load color dataset
 @st.cache_data
@@ -65,7 +66,7 @@ def process_frame(frame, color_df):
     green_mask = cv2.dilate(green_mask, kernel)
     blue_mask = cv2.dilate(blue_mask, kernel)
 
-    # List to store unique detected colors (color_name, rgb)
+    # Set to store unique detected colors (color_name, rgb)
     detected_colors = set()
 
     # Function to process contours and label colors
@@ -83,7 +84,7 @@ def process_frame(frame, color_df):
                 rgb = np.array([r, g, b])
                 color_name = find_closest_color(rgb, color_df)
                 
-                # Add to detected colors (using tuple to make RGB hashable)
+                # Add to detected colors
                 detected_colors.add((color_name, tuple(rgb)))
                 
                 # Draw bounding box and label
@@ -96,28 +97,8 @@ def process_frame(frame, color_df):
     process_contours(green_mask, (0, 255, 0))
     process_contours(blue_mask, (255, 0, 0))
 
-    # Add detected colors at the bottom of the image
-    if detected_colors:
-        # Sort detected colors by color name for consistency
-        detected_colors = sorted(detected_colors, key=lambda x: x[0])
-        color_text = " | ".join([f"{color_name} {rgb}" for color_name, rgb in detected_colors])
-        
-        # Calculate the position for the text
-        h, w, _ = frame.shape
-        text_size, _ = cv2.getTextSize(color_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
-        text_w, text_h = text_size
-        
-        # Draw a semi-transparent background rectangle for the text
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (0, h - text_h - 20), (w, h), (0, 0, 0), -1)  # Black background
-        alpha = 0.5  # Transparency factor
-        cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
-        
-        # Draw the text
-        cv2.putText(frame, color_text, (10, h - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-
-    return frame
+    # Return the processed frame and detected colors
+    return frame, detected_colors
 
 # Main app
 def main():
@@ -149,8 +130,17 @@ def main():
                 if image is None:
                     st.error("Failed to load image")
                     return
-                processed_frame = process_frame(image, color_df)
+                processed_frame, detected_colors = process_frame(image, color_df)
                 st.image(processed_frame, channels="BGR", caption="Detected Colors")
+                
+                # Display detected colors below the image
+                if detected_colors:
+                    detected_colors = sorted(detected_colors, key=lambda x: x[0])
+                    color_text = " | ".join([f"{color_name} {rgb}" for color_name, rgb in detected_colors])
+                    st.write("**Detected Colors:**")
+                    st.text(color_text)
+                else:
+                    st.write("**Detected Colors:** None")
             else:
                 # Process as video
                 cap = cv2.VideoCapture(tmp_file_path)
@@ -159,12 +149,21 @@ def main():
                     return
 
                 stframe = st.empty()
+                color_display = st.empty()
                 while cap.isOpened():
                     ret, frame = cap.read()
                     if not ret:
                         break
-                    processed_frame = process_frame(frame, color_df)
+                    processed_frame, detected_colors = process_frame(frame, color_df)
                     stframe.image(processed_frame, channels="BGR", caption="Detected Colors")
+                    
+                    # Display detected colors below the video frame
+                    if detected_colors:
+                        detected_colors = sorted(detected_colors, key=lambda x: x[0])
+                        color_text = " | ".join([f"{color_name} {rgb}" for color_name, rgb in detected_colors])
+                        color_display.write(f"**Detected Colors:** {color_text}")
+                    else:
+                        color_display.write("**Detected Colors:** None")
                 cap.release()
 
         except Exception as e:

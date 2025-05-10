@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 from streamlit_image_coordinates import streamlit_image_coordinates
+import os
 
 # Function to find closest color name
 def find_closest_color(rgb, color_df):
@@ -62,12 +63,24 @@ def main():
             # Read and store image
             image = Image.open(uploaded_file).convert("RGB")  # Ensure RGB format
             st.session_state.image = image
-            img_array = np.array(image)
+            
+            # Save the uploaded image temporarily to inspect it
+            temp_image_path = "temp_uploaded_image.png"
+            image.save(temp_image_path)
+            
+            # Reload the saved image to verify pixel values
+            reloaded_image = Image.open(temp_image_path).convert("RGB")
+            img_array = np.array(reloaded_image)
             st.session_state.img_array = img_array
             
-            # Debug: Log image shape and sample pixel
+            # Debug: Log image shape, dtype, and sample pixels
             debug_info = f"Image shape: {img_array.shape}\n"
+            debug_info += f"Image dtype: {img_array.dtype}\n"
             debug_info += f"Sample pixel at (0,0): {img_array[0,0]}\n"
+            # Check a few more pixels to confirm uniformity
+            height, width, _ = img_array.shape
+            debug_info += f"Sample pixel at ({width//2}, {height//2}): {img_array[height//2, width//2]}\n"
+            debug_info += f"Sample pixel at ({width-1}, {height-1}): {img_array[height-1, width-1]}\n"
             
             # Display image with click functionality using streamlit-image-coordinates
             st.write("Click on the image to detect the color:")
@@ -75,7 +88,7 @@ def main():
             
             # Process click if exists
             if click_coords:
-                x, y = click_coords["x"], click_coords["y"]
+                x, y = int(click_coords["x"]), int(click_coords["y"])
                 if 0 <= x < img_array.shape[1] and 0 <= y < img_array.shape[0]:
                     rgb = img_array[y, x]
                     debug_info += f"Click coordinates: ({x}, {y})\n"
@@ -112,6 +125,10 @@ def main():
                 st.session_state.debug_info = debug_info
                 st.write("**Debug Information**")
                 st.write(debug_info)
+
+            # Clean up temporary file
+            if os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
 
         except Exception as e:
             st.error(f"Error processing image: {str(e)}")

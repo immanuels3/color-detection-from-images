@@ -17,7 +17,6 @@ def find_closest_color(rgb, color_df):
             differences.append((diff, row['Color Name']))
         except (ValueError, KeyError):
             continue
-    # Fix: Use a key function to compare only the distance (first element of tuple)
     return min(differences, key=lambda x: x[0])[1] if differences else "Unknown Color"
 
 # Load color dataset
@@ -43,14 +42,14 @@ def process_frame(frame, color_df):
     # Convert to HSV
     hsvFrame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-    # Define HSV ranges
-    red_lower1 = np.array([0, 120, 70], np.uint8)
-    red_upper1 = np.array([10, 255, 255], np.uint8)
-    red_lower2 = np.array([170, 120, 70], np.uint8)
+    # Define wider HSV ranges
+    red_lower1 = np.array([0, 100, 50], np.uint8)    # Hue near 0
+    red_upper1 = np.array([15, 255, 255], np.uint8)
+    red_lower2 = np.array([165, 100, 50], np.uint8)  # Hue near 180
     red_upper2 = np.array([180, 255, 255], np.uint8)
-    green_lower = np.array([40, 40, 40], np.uint8)
-    green_upper = np.array([80, 255, 255], np.uint8)
-    blue_lower = np.array([100, 150, 0], np.uint8)
+    green_lower = np.array([35, 30, 30], np.uint8)    # Hue 35-85 for green
+    green_upper = np.array([85, 255, 255], np.uint8)
+    blue_lower = np.array([90, 100, 50], np.uint8)    # Hue 90-140 for blue
     blue_upper = np.array([140, 255, 255], np.uint8)
 
     # Create masks
@@ -69,12 +68,44 @@ def process_frame(frame, color_df):
     # Set to store unique detected colors (color_name, rgb)
     detected_colors = set()
 
+    # Debug: Sample HSV values at various points
+    h, w, _ = hsvFrame.shape
+    debug_info = "Sample HSV Values:\n"
+    sample_points = [(0, 0), (w//2, h//2), (w-1, h-1)]
+    for x, y in sample_points:
+        hsv_value = hsvFrame[y, x]
+        debug_info += f"Pixel ({x}, {y}): HSV {hsv_value}\n"
+
+    # Fallback: Check if the entire image is a solid color
+    avg_hsv = np.mean(hsvFrame, axis=(0, 1)).astype(int)
+    debug_info += f"Average HSV of image: {avg_hsv}\n"
+    if (red_lower1[0] <= avg_hsv[0] <= red_upper1[0] or red_lower2[0] <= avg_hsv[0] <= red_upper2[0]) and \
+       avg_hsv[1] >= 100 and avg_hsv[2] >= 50:
+        avg_rgb = np.mean(frame, axis=(0, 1)).astype(int)
+        b, g, r = avg_rgb
+        rgb = np.array([r, g, b])
+        color_name = find_closest_color(rgb, color_df)
+        detected_colors.add((color_name, tuple(rgb)))
+    elif green_lower[0] <= avg_hsv[0] <= green_upper[0] and avg_hsv[1] >= 30 and avg_hsv[2] >= 30:
+        avg_rgb = np.mean(frame, axis=(0, 1)).astype(int)
+        b, g, r = avg_rgb
+        rgb = np.array([r, g, b])
+        color_name = find_closest_color(rgb, color_df)
+        detected_colors.add((color_name, tuple(rgb)))
+    elif blue_lower[0] <= avg_hsv[0] <= blue_upper[0] and avg_hsv[1] >= 100 and avg_hsv[2] >= 50:
+        avg_rgb = np.mean(frame, axis=(0, 1)).astype(int)
+        b, g, r = avg_rgb
+        rgb = np.array([r, g, b])
+        color_name = find_closest_color(rgb, color_df)
+        detected_colors.add((color_name, tuple(rgb)))
+
     # Function to process contours and label colors
     def process_contours(mask, box_color):
         contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        debug_info_contours = f"Number of contours (area > 100): {len([c for c in contours if cv2.contourArea(c) > 100])}\n"
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area > 300:
+            if area > 100:  # Lowered threshold
                 x, y, w, h = cv2.boundingRect(contour)
                 roi = frame[y:y+h, x:x+w]
                 if roi.size == 0:
@@ -83,22 +114,18 @@ def process_frame(frame, color_df):
                 b, g, r = avg_color
                 rgb = np.array([r, g, b])
                 color_name = find_closest_color(rgb, color_df)
-                
-                # Add to detected colors
                 detected_colors.add((color_name, tuple(rgb)))
-                
-                # Draw bounding box and label
                 cv2.rectangle(frame, (x, y), (x + w, y + h), box_color, 2)
                 cv2.putText(frame, f"{color_name}", (x, y - 10),
                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, box_color)
+        return debug_info_contours
 
-    # Process each color
-    process_contours(red_mask, (0, 0, 255))
-    process_contours(green_mask, (0, 255, 0))
-    process_contours(blue_mask, (255, 0, 0))
+    # Process each color and collect debug info
+    debug_info += "Red Mask:\n" + process_contours(red_mask, (0, 0, 255))
+    debug_info += "Green Mask:\n" + process_contours(green_mask, (0, 255, 0))
+    debug_info += "Blue Mask:\n" + process_contours(blue_mask, (255, 0, 0))
 
-    # Return the processed frame and detected colors
-    return frame, detected_colors
+    return frame, detected_colors, debug_info
 
 # Main app
 def main():
@@ -130,7 +157,7 @@ def main():
                 if image is None:
                     st.error("Failed to load image")
                     return
-                processed_frame, detected_colors = process_frame(image, color_df)
+                processed_frame, detected_colors, debug_info = process_frame(image, color_df)
                 st.image(processed_frame, channels="BGR", caption="Detected Colors")
                 
                 # Display detected colors below the image
@@ -141,6 +168,11 @@ def main():
                     st.text(color_text)
                 else:
                     st.write("**Detected Colors:** None")
+                
+                # Display debug info
+                st.write("**Debug Information:**")
+                st.text(debug_info)
+
             else:
                 # Process as video
                 cap = cv2.VideoCapture(tmp_file_path)
@@ -150,11 +182,12 @@ def main():
 
                 stframe = st.empty()
                 color_display = st.empty()
+                debug_display = st.empty()
                 while cap.isOpened():
                     ret, frame = cap.read()
                     if not ret:
                         break
-                    processed_frame, detected_colors = process_frame(frame, color_df)
+                    processed_frame, detected_colors, debug_info = process_frame(frame, color_df)
                     stframe.image(processed_frame, channels="BGR", caption="Detected Colors")
                     
                     # Display detected colors below the video frame
@@ -164,6 +197,9 @@ def main():
                         color_display.write(f"**Detected Colors:** {color_text}")
                     else:
                         color_display.write("**Detected Colors:** None")
+                    
+                    # Display debug info
+                    debug_display.write(f"**Debug Information:** {debug_info}")
                 cap.release()
 
         except Exception as e:

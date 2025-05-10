@@ -65,6 +65,9 @@ def process_frame(frame, color_df):
     green_mask = cv2.dilate(green_mask, kernel)
     blue_mask = cv2.dilate(blue_mask, kernel)
 
+    # List to store unique detected colors (color_name, rgb)
+    detected_colors = set()
+
     # Function to process contours and label colors
     def process_contours(mask, box_color):
         contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
@@ -79,6 +82,11 @@ def process_frame(frame, color_df):
                 b, g, r = avg_color
                 rgb = np.array([r, g, b])
                 color_name = find_closest_color(rgb, color_df)
+                
+                # Add to detected colors (using tuple to make RGB hashable)
+                detected_colors.add((color_name, tuple(rgb)))
+                
+                # Draw bounding box and label
                 cv2.rectangle(frame, (x, y), (x + w, y + h), box_color, 2)
                 cv2.putText(frame, f"{color_name}", (x, y - 10),
                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, box_color)
@@ -87,6 +95,27 @@ def process_frame(frame, color_df):
     process_contours(red_mask, (0, 0, 255))
     process_contours(green_mask, (0, 255, 0))
     process_contours(blue_mask, (255, 0, 0))
+
+    # Add detected colors at the bottom of the image
+    if detected_colors:
+        # Sort detected colors by color name for consistency
+        detected_colors = sorted(detected_colors, key=lambda x: x[0])
+        color_text = " | ".join([f"{color_name} {rgb}" for color_name, rgb in detected_colors])
+        
+        # Calculate the position for the text
+        h, w, _ = frame.shape
+        text_size, _ = cv2.getTextSize(color_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
+        text_w, text_h = text_size
+        
+        # Draw a semi-transparent background rectangle for the text
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (0, h - text_h - 20), (w, h), (0, 0, 0), -1)  # Black background
+        alpha = 0.5  # Transparency factor
+        cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+        
+        # Draw the text
+        cv2.putText(frame, color_text, (10, h - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
     return frame
 
